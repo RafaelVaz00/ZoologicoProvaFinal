@@ -1,91 +1,114 @@
-from fastapi import Depends, FastAPI, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, Session
+from typing import List
+from fastapi import Depends, FastAPI, HTTPException, status
+from sqlalchemy.orm import Session
+from models.DataBase import get_connection
+from models.Animal import AnimalBase
+from models import Animal
+from models.Animal import Animal, AnimalBase, AnimalRequest, AnimalResponse
+from models.Especie import Especie, EspecieRequest, EspecieResponse
+from models.DataBase import Base, engine, get_connection
+from repository.AnimalRepository import AnimalRepository
+from repository.EspecieRepository import EspecieRepository
 
 
-DATABASE_URL = "mysql+pymysql://root:123456@127.0.0.1:8080/zoologico"
-engine = create_engine(DATABASE_URL)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-Base = declarative_base()
-
-# Definição do modelo de tabela para Espécie
-class Especie(Base):
-    __tablename__ = "especies"
-
-    especie_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    nome_especie = Column(String)
-    descricao = Column(String)
-    habitat = Column(String)
-    curiosidade = Column(String)
-    dieta = Column(String)
-    expectativa_vida_anos = Column(Integer)
-
-    # Relacionamento bidirecional com a tabela Animal
-    animais = relationship("Animal", back_populates="especie")
-
-# Definição do modelo de tabela para Animal
-class Animal(Base):
-    __tablename__ = "animais"
-
-    animal_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    nome = Column(String)
-    especie_id = Column(Integer, ForeignKey("especies.especie_id"))
-    sexo = Column(String)
-    data_nascimento = Column(String)
-
-    # Relacionamento bidirecional com a tabela Especie
-    especie = relationship("Especie", back_populates="animais")
-
-# Definição do modelo Pydantic para a saída da rota
-class AnimalOut(BaseModel):
-    animal_id: int
-    nome: str
-    especie_id: int
-    sexo: str
-    data_nascimento: str
-
+Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
-def get_connection():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
-################################ Rota para inserir um novo animal#################################
-@app.post("/animais/", response_model=AnimalOut)
-async def create_animal(animal_in: AnimalOut):
+#Endpoints Animal
+@app.get("/animais/todos", response_model=list[AnimalBase])
+async def retorna_todos_animais(db: Session = Depends(get_connection)):
+    return AnimalRepository.get_all(db)
 
-    db = SessionLocal()
-    
-    # Criar uma instância de Animal com base nos dados recebidos
+@app.post("/animais/", response_model=AnimalResponse)
+async def create_animal(request: AnimalRequest, db: Session = Depends(get_connection)):
     animal = Animal(
-        nome=animal_in.nome,
-        especie_id=animal_in.especie_id,
-        sexo=animal_in.sexo,
-        data_nascimento=str(animal_in.data_nascimento)
+        nome=request.nome,
+        especie_id=request.especie_id,
+        sexo=request.sexo,
+        data_nascimento=request.data_nascimento
     )
+    return AnimalRepository.salvar(db, animal)
 
-    db.add(animal)
-    db.commit()
-    db.refresh(animal)
-    return animal
-
-
-################################ Rota para obter um animal pelo ID ###################################
-@app.get("/animais/{animal_id}", response_model=AnimalOut)
-async def read_animal(animal_id: int, db: Session = Depends(get_connection)):
-    animal = db.query(Animal).filter(Animal.animal_id == animal_id).first()
+@app.get("/animais/{animal_id}", response_model=AnimalResponse)
+async def obter_animal_por_id(animal_id: int, db: Session = Depends(get_connection)):
+    
+    animal = AnimalRepository.get_by_id(db, animal_id)
+    
     if animal is None:
-        raise HTTPException(status_code=404, detail="Animal not found")
+        raise HTTPException(status_code=404, detail="O Animal não foi encontrado ou não existe!")
     return animal
 
+@app.delete("/animais/{animal_id}",status_code=status.HTTP_204_NO_CONTENT)
+def deletar_animal(animal_id: int, db:Session = Depends(get_connection)):
+    if not AnimalRepository.exists_by_id(db, animal_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Animal não encontrado.')
+    if AnimalRepository.deletar(db, animal_id):
+        raise HTTPException(status_code=status.HTTP_200_OK, detail='Animal deletado com sucesso!')
+    else:
+        raise HTTPException(status_code=status.HTTP_200_OK, detail='Não foi possível deletar o Animal.')
 
-@app.get("/")
-def read_root():
-    return {"message": "API está rodando"}
+@app.put("/animais/{animal_id}", response_model=AnimalResponse)
+async def create_animal(animal_id: int, request: AnimalRequest, db: Session = Depends(get_connection)):
+    if not AnimalRepository.exists_by_id(db, animal_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Contato não encontrado')
+    
+    animal = Animal(
+        nome=request.nome,
+        especie_id=request.especie_id,
+        sexo=request.sexo,
+        data_nascimento=request.data_nascimento
+    )
+    return AnimalRepository.atualizar(db, animal)
+
+
+#Endpoints Especie
+
+@app.get("/especies/todas", response_model=list[EspecieResponse])
+async def retorna_todas_especies(db: Session = Depends(get_connection)):
+    return EspecieRepository.get_all(db)
+
+@app.post("/especies/", response_model=EspecieResponse)
+async def criar_especie(request: EspecieRequest, db: Session = Depends(get_connection)):
+    especie = Especie(
+        nome_especie=request.nome_especie,
+        descricao=request.descricao,
+        habitat=request.habitat,
+        curiosidade=request.curiosidade,
+        dieta=request.dieta,
+        expectativa_vida_anos=request.expectativa_vida_anos
+    )
+    return EspecieRepository.salvar(db, especie)
+
+@app.get("/especies/{especie_id}", response_model=EspecieResponse)
+async def obter_especie_por_id(especie_id: int, db: Session = Depends(get_connection)):
+    especie = EspecieRepository.get_by_id(db, especie_id)
+    if especie is None:
+        raise HTTPException(status_code=404, detail="A espécie não foi encontrada ou não existe!")
+    return especie
+
+@app.delete("/especies/{especie_id}", status_code=status.HTTP_204_NO_CONTENT)
+def deletar_especie(especie_id: int, db: Session = Depends(get_connection)):
+    if not EspecieRepository.exists_by_id(db, especie_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Espécie não encontrada.')
+    if EspecieRepository.deletar(db, especie_id):
+        raise HTTPException(status_code=status.HTTP_200_OK, detail='Espécie deletada com sucesso!')
+    else:
+        raise HTTPException(status_code=status.HTTP_200_OK, detail='Não foi possível deletar a espécie.')
+
+@app.put("/especies/{especie_id}", response_model=EspecieResponse)
+async def atualizar_especie(especie_id: int, request: EspecieRequest, db: Session = Depends(get_connection)):
+    if not EspecieRepository.exists_by_id(db, especie_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Espécie não encontrada')
+    
+    especie = Especie(
+        especie_id=especie_id,
+        nome_especie=request.nome_especie,
+        descricao=request.descricao,
+        habitat=request.habitat,
+        curiosidade=request.curiosidade,
+        dieta=request.dieta,
+        expectativa_vida_anos=request.expectativa_vida_anos
+    )
+    return EspecieRepository.atualizar(db, especie)

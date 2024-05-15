@@ -26,9 +26,13 @@ CREATE TABLE animais (
 INSERT INTO especies (nome_especie, descricao, habitat, curiosidade, dieta, expectativa_vida_anos)
 VALUES ('Sapo', 'O leão é um grande felino conhecido por sua juba.', 'Savana', 'Os leões são os únicos felinos que vivem em grupos sociais chamados de "coalizões".', 'Carnívoro', 15);
 
-
+INSERT INTO animais (nome, especie_id, sexo, data_nascimento)
+values ( 'Matheus', 1, 'F', '08-03-2001' );
 -- Exibir os registros da tabela especies
 SELECT * FROM especies;
+
+
+-- DELETE FROM animais WHERE animal_id IN (3, 4);
 
 -- Exibir os registros da tabela animais
 SELECT * FROM animais;
